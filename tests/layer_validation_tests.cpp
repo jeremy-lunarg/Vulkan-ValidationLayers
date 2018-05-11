@@ -12190,60 +12190,126 @@ TEST_F(VkPositiveLayerTest, OwnershipTranfersBuffer) {
 
 class BarrierQueueFamilyTestHelper {
    public:
-    BarrierQueueFamilyTestHelper(VkLayerTest &test) : layer_test_(test), image_(test.DeviceObj()) {}
+    struct QueueFamilyObjs {
+        uint32_t index;
+        std::unique_ptr<VkQueueObj> queue;
+        std::unique_ptr<VkCommandPoolObj> command_pool;
+        std::unique_ptr<VkCommandBufferObj> command_buffer;
+        std::unique_ptr<VkCommandBufferObj> command_buffer2;
+        void Init(VkDeviceObj *device, uint32_t qf_index, VkQueue qf_queue, VkCommandPoolCreateFlags cp_flags) {
+            index = qf_index;
+            queue.reset(new VkQueueObj(qf_queue, qf_index));
+            command_pool.reset(new VkCommandPoolObj(device, qf_index, cp_flags));
+            command_buffer.reset(new VkCommandBufferObj(device, command_pool.get(), VK_COMMAND_BUFFER_LEVEL_PRIMARY, queue.get()));
+            command_buffer2.reset(new VkCommandBufferObj(device, command_pool.get(), VK_COMMAND_BUFFER_LEVEL_PRIMARY, queue.get()));
+        };
+    };
+
+    struct Context {
+        VkLayerTest *layer_test;
+        uint32_t default_index;
+        std::unordered_map<uint32_t, QueueFamilyObjs> queue_families;
+        Context(VkLayerTest *test, const std::vector<uint32_t> &queue_family_indices) : layer_test(test) {
+            if (0 == queue_family_indices.size()) {
+                return;  // This is invalid
+            }
+            VkDeviceObj *device_obj = layer_test->DeviceObj();
+            queue_families.reserve(queue_family_indices.size());
+            default_index = queue_family_indices[0];
+            for (auto qfi : queue_family_indices) {
+                VkQueue queue = device_obj->queue_family_queues(qfi)[0]->handle();
+                queue_families.emplace(std::make_pair(qfi, QueueFamilyObjs()));
+                queue_families[qfi].Init(device_obj, qfi, queue, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+            }
+            Reset();
+        }
+        void Reset() {
+            layer_test->DeviceObj()->wait();
+            for (auto &qf : queue_families) {
+                vkResetCommandPool(layer_test->device(), qf.second.command_pool->handle(), 0);
+            }
+        }
+    };
+
+    BarrierQueueFamilyTestHelper(Context *context) : context_(context), image_(context->layer_test->DeviceObj()) {}
     // Init with queue families non-null for CONCURRENT sharing mode (which requires them)
     void Init(std::vector<uint32_t> *families) {
-        VkDeviceObj *device_obj = layer_test_.DeviceObj();
+        VkDeviceObj *device_obj = context_->layer_test->DeviceObj();
         image_.Init(32, 32, 1, VK_FORMAT_B8G8R8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_TILING_OPTIMAL, 0, families);
         ASSERT_TRUE(image_.initialized());
 
         image_barrier_ =
-            image_.image_memory_barrier(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, image_.Layout(),
-                                        image_.Layout(), image_.subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1));
+            image_.image_memory_barrier(VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT, image_.Layout(), image_.Layout(),
+                                        image_.subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1));
 
         VkMemoryPropertyFlags mem_prop = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         buffer_.init_as_src_and_dst(*device_obj, 256, mem_prop, families);
         ASSERT_TRUE(buffer_.initialized());
-        buffer_barrier_ =
-            buffer_.buffer_memory_barrier(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, 0, VK_WHOLE_SIZE);
+        buffer_barrier_ = buffer_.buffer_memory_barrier(VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT, 0, VK_WHOLE_SIZE);
     }
 
-    void operator()(UNIQUE_VALIDATION_ERROR_CODE img_err, UNIQUE_VALIDATION_ERROR_CODE buf_err, uint32_t src, uint32_t dst,
-                    bool positive = false, VkQueue submit = VK_NULL_HANDLE) {
-        auto monitor = layer_test_.Monitor();
-        monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, img_err);
-        monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, buf_err);
+    QueueFamilyObjs *GetQueueFamilyInfo(Context *context, uint32_t qfi) {
+        QueueFamilyObjs *qf;
 
-        layer_test_.CommandBuffer()->begin();
+        auto qf_it = context->queue_families.find(qfi);
+        if (qf_it != context->queue_families.end()) {
+            qf = &(qf_it->second);
+        } else {
+            qf = &(context->queue_families[context->default_index]);
+        }
+        return qf;
+    }
+    enum Modifier {
+        NONE,
+        DOUBLE_RECORD,
+        DOUBLE_COMMAND_BUFFER,
+    };
+
+    template <typename ImgError, typename BufError>
+    void operator()(ImgError img_err, BufError buf_err, uint32_t src, uint32_t dst, bool positive = false,
+                    uint32_t queue_family_index = kInvalidQueueFamily, Modifier mod = Modifier::NONE) {
+        auto monitor = context_->layer_test->Monitor();
+        monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT, img_err);
+        monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT, buf_err);
+
         image_barrier_.srcQueueFamilyIndex = src;
         image_barrier_.dstQueueFamilyIndex = dst;
         buffer_barrier_.srcQueueFamilyIndex = src;
         buffer_barrier_.dstQueueFamilyIndex = dst;
-        vkCmdPipelineBarrier(layer_test_.CommandBuffer()->handle(), VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &buffer_barrier_, 1,
-                             &image_barrier_);
-        layer_test_.CommandBuffer()->end();
 
-        VkCommandBuffer cb_handle = layer_test_.CommandBuffer()->handle();
-        if (submit != VK_NULL_HANDLE) {
-            VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 0, nullptr, nullptr, 1, &cb_handle, 0, nullptr};
-            VkResult err = vkQueueSubmit(submit, 1, &submit_info, VK_NULL_HANDLE);
-            if (positive) {
-                ASSERT_TRUE(err == VK_SUCCESS);
-                err = vkQueueWaitIdle(submit);
+        QueueFamilyObjs *qf = GetQueueFamilyInfo(context_, queue_family_index);
+
+        VkCommandBufferObj *command_buffer = qf->command_buffer.get();
+        for (int cb_repeat = 0; cb_repeat < (mod == Modifier::DOUBLE_COMMAND_BUFFER ? 2 : 1); cb_repeat++) {
+            command_buffer->begin();
+            for (int repeat = 0; repeat < (mod == Modifier::DOUBLE_RECORD ? 2 : 1); repeat++) {
+                vkCmdPipelineBarrier(command_buffer->handle(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 1, &buffer_barrier_, 1, &image_barrier_);
+            }
+            command_buffer->end();
+            command_buffer = qf->command_buffer2.get();  // Second pass (if any) goes to the secondary command_buffer.
+        }
+
+        if (queue_family_index != kInvalidQueueFamily) {
+            if (mod == Modifier::DOUBLE_COMMAND_BUFFER) {
+                // the Fence resolves to VK_NULL_HANLE... i.e. no fence
+                qf->queue->submit({{qf->command_buffer.get(), qf->command_buffer2.get()}}, vk_testing::Fence(), positive);
+            } else {
+                qf->command_buffer->QueueCommandBuffer(positive);  // Check for success on positive tests only
             }
         }
-        vkResetCommandBuffer(cb_handle, 0);
 
         if (positive) {
             monitor->VerifyNotFound();
         } else {
             monitor->VerifyFound();
         }
+        context_->Reset();
     };
 
    protected:
-    VkLayerTest &layer_test_;
+    static const uint32_t kInvalidQueueFamily = std::numeric_limits<uint32_t>::max();
+    Context *context_;
     VkImageObj image_;
     VkImageMemoryBarrier image_barrier_;
     VkBufferObj buffer_;
@@ -12260,6 +12326,12 @@ TEST_F(VkLayerTest, InvalidBarrierQueueFamily) {
     const uint32_t other_family = submit_family != 0 ? 0 : 1;
     const bool only_one_family = invalid == 1;
 
+    std::vector<uint32_t> qf_indices{{submit_family, other_family}};
+    if (only_one_family) {
+        qf_indices.resize(1);
+    }
+    BarrierQueueFamilyTestHelper::Context test_context(this, qf_indices);
+
     if (m_device->props.apiVersion >= VK_API_VERSION_1_1) {
         printf(
             "             Device has apiVersion greater than 1.0 -- skipping test cases that require external memory to be "
@@ -12269,7 +12341,7 @@ TEST_F(VkLayerTest, InvalidBarrierQueueFamily) {
             printf("             Single queue family found -- VK_SHARING_MODE_CONCURRENT testcases skipped.\n");
         } else {
             std::vector<uint32_t> families = {submit_family, other_family};
-            BarrierQueueFamilyTestHelper conc_test(*this);
+            BarrierQueueFamilyTestHelper conc_test(&test_context);
             conc_test.Init(&families);
             // core_validation::barrier_queue_families::kSrcAndDestMustBeIgnore
             conc_test(VALIDATION_ERROR_0a00095e, VALIDATION_ERROR_0180094c, VK_QUEUE_FAMILY_IGNORED, submit_family);
@@ -12279,7 +12351,7 @@ TEST_F(VkLayerTest, InvalidBarrierQueueFamily) {
             conc_test(VALIDATION_ERROR_0a00095e, VALIDATION_ERROR_0180094c, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
         }
 
-        BarrierQueueFamilyTestHelper excl_test(*this);
+        BarrierQueueFamilyTestHelper excl_test(&test_context);
         excl_test.Init(nullptr);  // no queue families means *exclusive* sharing mode.
 
         // core_validation::barrier_queue_families::kBothIgnoreOrBothValid
@@ -12293,16 +12365,38 @@ TEST_F(VkLayerTest, InvalidBarrierQueueFamily) {
     if (only_one_family) {
         printf("             Single queue family found -- VK_SHARING_MODE_EXCLUSIVE submit testcases skipped.\n");
     } else {
-        BarrierQueueFamilyTestHelper excl_test(*this);
+        BarrierQueueFamilyTestHelper excl_test(&test_context);
         excl_test.Init(nullptr);
 
         // core_validation::barrier_queue_families::kSubmitQueueMustMatchSrcOrDst
-        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, other_family, other_family, false, m_device->m_queue);
-        // true -> positive test
-        // Note: when we start tracking resource ownership, we'll need a way to reset the buffers s.t. this doesn't
-        //       trigger unexpected errors
-        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, submit_family, other_family, true, m_device->m_queue);
-        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, other_family, submit_family, true, m_device->m_queue);
+        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, other_family, other_family, false, submit_family);
+
+        // true -> positive test (testing both the index logic and the QFO transfer tracking.
+        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, submit_family, other_family, true, submit_family);
+        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, submit_family, other_family, true, other_family);
+        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, other_family, submit_family, true, other_family);
+        excl_test(VALIDATION_ERROR_0a00096a, VALIDATION_ERROR_01800958, other_family, submit_family, true, submit_family);
+
+        // negative testing for QFO transfer tracking
+        // Duplicate release in one CB
+        excl_test("UNASSIGNED-VkImageMemoryBarrier-image-00001", "UNASSIGNED-VkBufferMemoryBarrier-buffer-00001", submit_family,
+                  other_family, false, submit_family, BarrierQueueFamilyTestHelper::DOUBLE_RECORD);
+        // Duplicate pending release
+        excl_test("UNASSIGNED-VkImageMemoryBarrier-image-00003", "UNASSIGNED-VkBufferMemoryBarrier-buffer-00003", submit_family,
+                  other_family, false, submit_family);
+        // Duplicate acquire in one CB
+        excl_test("UNASSIGNED-VkImageMemoryBarrier-image-00001", "UNASSIGNED-VkBufferMemoryBarrier-buffer-00001", submit_family,
+                  other_family, false, other_family, BarrierQueueFamilyTestHelper::DOUBLE_RECORD);
+        // No pending release
+        excl_test("UNASSIGNED-VkImageMemoryBarrier-image-00004", "UNASSIGNED-VkBufferMemoryBarrier-buffer-00004", submit_family,
+                  other_family, false, other_family);
+        // Duplicate release in two CB
+        excl_test("UNASSIGNED-VkImageMemoryBarrier-image-00002", "UNASSIGNED-VkBufferMemoryBarrier-buffer-00002", submit_family,
+                  other_family, false, submit_family, BarrierQueueFamilyTestHelper::DOUBLE_COMMAND_BUFFER);
+        // Duplicate acquire in two CB
+        excl_test("NO ERROR", "NO ERROR", submit_family, other_family, true, submit_family);  // need a succesful release
+        excl_test("UNASSIGNED-VkImageMemoryBarrier-image-00002", "UNASSIGNED-VkBufferMemoryBarrier-buffer-00002", submit_family,
+                  other_family, false, other_family, BarrierQueueFamilyTestHelper::DOUBLE_COMMAND_BUFFER);
     }
 }
 
@@ -12336,11 +12430,17 @@ TEST_F(VkLayerTest, InvalidBarrierQueueFamilyWithMemExt) {
     const uint32_t other_family = submit_family != 0 ? 0 : 1;
     const bool only_one_family = invalid == 1;
 
+    std::vector<uint32_t> qf_indices{{submit_family, other_family}};
+    if (only_one_family) {
+        qf_indices.resize(1);
+    }
+    BarrierQueueFamilyTestHelper::Context test_context(this, qf_indices);
+
     if (only_one_family) {
         printf("             Single queue family found -- VK_SHARING_MODE_CONCURRENT testcases skipped.\n");
     } else {
         std::vector<uint32_t> families = {submit_family, other_family};
-        BarrierQueueFamilyTestHelper conc_test(*this);
+        BarrierQueueFamilyTestHelper conc_test(&test_context);
 
         // core_validation::barrier_queue_families::kSrcOrDstMustBeIgnore
         conc_test.Init(&families);
@@ -12363,7 +12463,7 @@ TEST_F(VkLayerTest, InvalidBarrierQueueFamilyWithMemExt) {
                   true);
     }
 
-    BarrierQueueFamilyTestHelper excl_test(*this);
+    BarrierQueueFamilyTestHelper excl_test(&test_context);
     excl_test.Init(nullptr);  // no queue families means *exclusive* sharing mode.
 
     // core_validation::barrier_queue_families::kSrcIgnoreRequiresDstIgnore
