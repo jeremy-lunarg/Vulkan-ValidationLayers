@@ -346,8 +346,8 @@ location of the loader's install directory:
 
 After making any changes to the repository, you should perform some quick
 sanity tests, including the run_all_tests Powershell script. In addition,
-running sample applications such as the
-[cube demo](https://www.github.com/KhronosGroup/Vulkan-Tools.git)
+running sample applications such as
+[Vulkan Cube](https://www.github.com/KhronosGroup/Vulkan-Tools.git)
 with validation enabled is advised.
 
 To run the validation test script, open a Powershell Console, change to the
@@ -575,7 +575,7 @@ Finally, rebuild the repository using `cmake` and `make`, as explained above.
 
     export VK_LAYER_PATH=<path to your repository root>/build/layers
 
-You can run the `cube` or `vulkaninfo` applications from the Vulkan-Tools
+You can run the Vulkan Cube or Vulkan Info application from the Vulkan-Tools
 repository to see which driver, loader and layers are being used.
 
 ## Building On Android
@@ -690,7 +690,7 @@ for VS2013:
 ### Android Tests and Demos
 
 After making any changes to the repository you should perform some quick
-sanity tests, including the layer validation tests and the cube and smoke
+sanity tests, including the layer validation tests and the Vulkan Cube and smoke
 demos with validation enabled.
 
 #### Run Layer Validation Tests
@@ -779,7 +779,7 @@ Within Xcode, you can select Debug or Release builds in the Build Settings of th
 
     export VK_LAYER_PATH=<path to your repository root>/build/layers
 
-You can run the `vulkaninfo` applications from the Vulkan-Tools repository to
+You can run the Vulkan Info application from the Vulkan-Tools repository to
 see which driver, loader and layers are being used.
 
 ### MacOS Tests
@@ -820,8 +820,8 @@ This script will run the following tests:
 
 - `vk_layer_validation_tests`: Test Vulkan validation layers
 
-Further testing and sanity checking can be achieved by running the cube and
-vulkaninfo applications in the
+Further testing and sanity checking can be achieved by running the Vulkan Cube and
+Vulkan Info applications in the
 [Vulkan-Tools](https://github.com/KhronosGroup/Vulkan-Tools)
 repository.
 
