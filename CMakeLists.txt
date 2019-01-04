@@ -113,6 +113,10 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
     if((CMAKE_COMPILER_IS_GNUCXX AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.3.0)) OR
        (("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 3.8.0)))
         add_compile_options(-Werror)
+
+    # Enable thread safety analysis for versions of Clang that are shipped on Ubuntu 18.04 or older.
+    if(("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 3.8.0))
+        add_compile_options(-Wthread-safety)
     endif()
 
     set(CMAKE_C_STANDARD 99)
