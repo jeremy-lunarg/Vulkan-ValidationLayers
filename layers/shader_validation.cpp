@@ -961,7 +961,7 @@ static bool ValidateViAgainstVsInputs(debug_report_data const *report_data, VkPi
     };
     std::map<uint32_t, AttribInputPair> location_map;
     for (const auto attrib_it : attribs) location_map[attrib_it.first].attrib = attrib_it.second;
-    for (const auto input_it : inputs) location_map[input_it.first.first].input = &input_it.second;
+    for (const auto &input_it : inputs) location_map[input_it.first.first].input = &input_it.second;
 
     for (const auto location_it : location_map) {
         const auto location = location_it.first;
@@ -1020,7 +1020,7 @@ static bool ValidateFsOutputsAgainstRenderPass(debug_report_data const *report_d
     };
     std::map<uint32_t, AttachmentOutputPair> location_map;
     for (const auto attachment_it : color_attachments) location_map[attachment_it.first].attachment = attachment_it.second;
-    for (const auto output_it : outputs) location_map[output_it.first.first].output = &output_it.second;
+    for (const auto& output_it : outputs) location_map[output_it.first.first].output = &output_it.second;
 
     const bool alphaToCoverageEnabled = pipeline->graphicsPipelineCI.pMultisampleState != NULL &&
                                         pipeline->graphicsPipelineCI.pMultisampleState->alphaToCoverageEnable == VK_TRUE;
