@@ -8798,3 +8798,456 @@ TEST_F(VkLayerTest, ValidateGetRayTracingCaptureReplayShaderGroupHandlesKHR) {
                                                       (ray_tracing_properties.shaderGroupHandleCaptureReplaySize - 1), &buffer);
     m_errorMonitor->VerifyFound();
 }
+
+TEST_F(VkLayerTest, CreateComputePipelineOpImageWriteOpTypeImageUnknownFormat) {
+    TEST_DESCRIPTION(
+        "Generate an error if OpImageWrite is used to write to an OpTypeImage of Unknown format without requesting the "
+        "StorageImageWriteWithoutFormat SPIR-V capability.");
+
+    VkPhysicalDeviceFeatures features{};
+    features.shaderStorageImageWriteWithoutFormat = VK_FALSE;
+    ASSERT_NO_FATAL_FAILURE(Init(&features));
+
+    const std::string source{R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %gl_GlobalInvocationID
+               OpExecutionMode %main LocalSize 1 1 1
+               OpSource GLSL 450
+               OpName %main "main"
+               OpName %coordinate "coordinate"
+               OpName %gl_GlobalInvocationID "gl_GlobalInvocationID"
+               OpName %image "image"
+               OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+               OpDecorate %image DescriptorSet 0
+               OpDecorate %image Binding 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+      %v2int = OpTypeVector %int 2
+%_ptr_Function_v2int = OpTypePointer Function %v2int
+       %uint = OpTypeInt 32 0
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+     %v2uint = OpTypeVector %uint 2
+         %18 = OpTypeImage %int 2D 0 0 0 2 Unknown
+%_ptr_UniformConstant_18 = OpTypePointer UniformConstant %18
+      %image = OpVariable %_ptr_UniformConstant_18 UniformConstant
+      %v4int = OpTypeVector %int 4
+      %int_0 = OpConstant %int 0
+         %25 = OpConstantComposite %v4int %int_0 %int_0 %int_0 %int_0
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+ %coordinate = OpVariable %_ptr_Function_v2int Function
+         %15 = OpLoad %v3uint %gl_GlobalInvocationID
+         %16 = OpVectorShuffle %v2uint %15 %15 0 1
+         %17 = OpBitcast %v2int %16
+               OpStore %coordinate %17
+         %21 = OpLoad %18 %image
+         %22 = OpLoad %v2int %coordinate
+               OpImageWrite %21 %22 %25
+               OpReturn
+               OpFunctionEnd)"};
+
+    std::vector<unsigned int> spirv;
+    ASMtoSPV(SPV_ENV_VULKAN_1_0, 0, source.data(), spirv);
+
+    m_errorMonitor->SetDesiredFailureMsg(
+        VK_DEBUG_REPORT_ERROR_BIT_EXT,
+        "SPIR-V module not valid: Capability StorageImageWriteWithoutFormat is required to write to storage image");
+
+    VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, nullptr, 0, spirv.size() * sizeof(unsigned int),
+                                  spirv.data()};
+
+    VkShaderModule module;
+    auto const result = vk::CreateShaderModule(m_device->handle(), &info, nullptr, &module);
+    if (result == VK_SUCCESS) {
+        vk::DestroyShaderModule(m_device->handle(), module, nullptr);
+    }
+
+    m_errorMonitor->VerifyFound();
+}
+
+TEST_F(VkLayerTest, CreateComputePipelineOpImageReadOpTypeImageUnknownFormat) {
+    TEST_DESCRIPTION(
+        "Generate an error if OpImageRead is used to read from an OpTypeImage of Unknown format without requesting the "
+        "StorageImageReadWithoutFormat SPIR-V capability.");
+
+    VkPhysicalDeviceFeatures features{};
+    features.shaderStorageImageReadWithoutFormat = VK_FALSE;
+    ASSERT_NO_FATAL_FAILURE(Init(&features));
+
+    const std::string source{R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %gl_GlobalInvocationID
+               OpExecutionMode %main LocalSize 1 1 1
+               OpSource GLSL 450
+               OpName %main "main"
+               OpName %coordinate "coordinate"
+               OpName %gl_GlobalInvocationID "gl_GlobalInvocationID"
+               OpName %texel "texel"
+               OpName %image "image"
+               OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+               OpDecorate %image DescriptorSet 0
+               OpDecorate %image Binding 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+      %v2int = OpTypeVector %int 2
+%_ptr_Function_v2int = OpTypePointer Function %v2int
+       %uint = OpTypeInt 32 0
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+     %v2uint = OpTypeVector %uint 2
+      %v4int = OpTypeVector %int 4
+%_ptr_Function_v4int = OpTypePointer Function %v4int
+         %21 = OpTypeImage %int 2D 0 0 0 2 Unknown
+%_ptr_UniformConstant_21 = OpTypePointer UniformConstant %21
+      %image = OpVariable %_ptr_UniformConstant_21 UniformConstant
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+ %coordinate = OpVariable %_ptr_Function_v2int Function
+      %texel = OpVariable %_ptr_Function_v4int Function
+         %15 = OpLoad %v3uint %gl_GlobalInvocationID
+         %16 = OpVectorShuffle %v2uint %15 %15 0 1
+         %17 = OpBitcast %v2int %16
+               OpStore %coordinate %17
+         %24 = OpLoad %21 %image
+         %25 = OpLoad %v2int %coordinate
+         %26 = OpImageRead %v4int %24 %25
+               OpStore %texel %26
+               OpReturn
+               OpFunctionEnd)"};
+
+    std::vector<unsigned int> spirv;
+    ASMtoSPV(SPV_ENV_VULKAN_1_0, 0, source.data(), spirv);
+
+    m_errorMonitor->SetDesiredFailureMsg(
+        VK_DEBUG_REPORT_ERROR_BIT_EXT,
+        "SPIR-V module not valid: Capability StorageImageReadWithoutFormat is required to read storage image");
+
+    VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, nullptr, 0, spirv.size() * sizeof(unsigned int),
+                                  spirv.data()};
+
+    VkShaderModule module;
+    auto const result = vk::CreateShaderModule(m_device->handle(), &info, nullptr, &module);
+    if (result == VK_SUCCESS) {
+        vk::DestroyShaderModule(m_device->handle(), module, nullptr);
+    }
+
+    m_errorMonitor->VerifyFound();
+}
+
+TEST_F(VkLayerTest, CreateComputePipelineShaderStorageImageWriteWithoutFormatNotEnabled) {
+    TEST_DESCRIPTION(
+        "Generate an error if OpImageWrite is used to write to an OpTypeImage of Unknown format without enabling the "
+        "shaderStorageImageWriteWithoutFormat feature.");
+
+    VkPhysicalDeviceFeatures features{};
+    features.shaderStorageImageWriteWithoutFormat = VK_FALSE;
+    ASSERT_NO_FATAL_FAILURE(Init(&features));
+
+    const std::string source{R"(
+               OpCapability Shader
+               OpCapability StorageImageWriteWithoutFormat
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %gl_GlobalInvocationID
+               OpExecutionMode %main LocalSize 1 1 1
+               OpSource GLSL 450
+               OpName %main "main"
+               OpName %coordinate "coordinate"
+               OpName %gl_GlobalInvocationID "gl_GlobalInvocationID"
+               OpName %image "image"
+               OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+               OpDecorate %image DescriptorSet 0
+               OpDecorate %image Binding 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+      %v2int = OpTypeVector %int 2
+%_ptr_Function_v2int = OpTypePointer Function %v2int
+       %uint = OpTypeInt 32 0
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+     %v2uint = OpTypeVector %uint 2
+         %18 = OpTypeImage %int 2D 0 0 0 2 Unknown
+%_ptr_UniformConstant_18 = OpTypePointer UniformConstant %18
+      %image = OpVariable %_ptr_UniformConstant_18 UniformConstant
+      %v4int = OpTypeVector %int 4
+      %int_0 = OpConstant %int 0
+         %25 = OpConstantComposite %v4int %int_0 %int_0 %int_0 %int_0
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+ %coordinate = OpVariable %_ptr_Function_v2int Function
+         %15 = OpLoad %v3uint %gl_GlobalInvocationID
+         %16 = OpVectorShuffle %v2uint %15 %15 0 1
+         %17 = OpBitcast %v2int %16
+               OpStore %coordinate %17
+         %21 = OpLoad %18 %image
+         %22 = OpLoad %v2int %coordinate
+               OpImageWrite %21 %22 %25
+               OpReturn
+               OpFunctionEnd)"};
+
+    m_errorMonitor->SetDesiredFailureMsg(
+        VK_DEBUG_REPORT_ERROR_BIT_EXT,
+        "Shader requires VkPhysicalDeviceFeatures::shaderStorageImageWriteWithoutFormat but is not enabled on the device");
+
+    CreateComputePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.cs_.reset(new VkShaderObj(m_device, source, VK_SHADER_STAGE_COMPUTE_BIT, this));
+    pipe.dsl_bindings_ = {{0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+    pipe.InitState();
+    pipe.CreateComputePipeline();
+
+    m_errorMonitor->VerifyFound();
+}
+
+TEST_F(VkLayerTest, CreateComputePipelineShaderStorageImageReadWithoutFormatNotEnabled) {
+    TEST_DESCRIPTION(
+        "Generate an error if OpImageRead is used to read from an OpTypeImage of Unknown format without enabling the "
+        "shaderStorageImageReadWithoutFormat feature.");
+
+    VkPhysicalDeviceFeatures features{};
+    features.shaderStorageImageReadWithoutFormat = VK_FALSE;
+    ASSERT_NO_FATAL_FAILURE(Init(&features));
+
+    const std::string source{R"(
+               OpCapability Shader
+               OpCapability StorageImageReadWithoutFormat
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main" %gl_GlobalInvocationID
+               OpExecutionMode %main LocalSize 1 1 1
+               OpSource GLSL 450
+               OpName %main "main"
+               OpName %coordinate "coordinate"
+               OpName %gl_GlobalInvocationID "gl_GlobalInvocationID"
+               OpName %texel "texel"
+               OpName %image "image"
+               OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+               OpDecorate %image DescriptorSet 0
+               OpDecorate %image Binding 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+      %v2int = OpTypeVector %int 2
+%_ptr_Function_v2int = OpTypePointer Function %v2int
+       %uint = OpTypeInt 32 0
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+     %v2uint = OpTypeVector %uint 2
+      %v4int = OpTypeVector %int 4
+%_ptr_Function_v4int = OpTypePointer Function %v4int
+         %21 = OpTypeImage %int 2D 0 0 0 2 Unknown
+%_ptr_UniformConstant_21 = OpTypePointer UniformConstant %21
+      %image = OpVariable %_ptr_UniformConstant_21 UniformConstant
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+ %coordinate = OpVariable %_ptr_Function_v2int Function
+      %texel = OpVariable %_ptr_Function_v4int Function
+         %15 = OpLoad %v3uint %gl_GlobalInvocationID
+         %16 = OpVectorShuffle %v2uint %15 %15 0 1
+         %17 = OpBitcast %v2int %16
+               OpStore %coordinate %17
+         %24 = OpLoad %21 %image
+         %25 = OpLoad %v2int %coordinate
+         %26 = OpImageRead %v4int %24 %25
+               OpStore %texel %26
+               OpReturn
+               OpFunctionEnd)"};
+
+    m_errorMonitor->SetDesiredFailureMsg(
+        VK_DEBUG_REPORT_ERROR_BIT_EXT,
+        "Shader requires VkPhysicalDeviceFeatures::shaderStorageImageReadWithoutFormat but is not enabled on the device");
+
+    CreateComputePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.cs_.reset(new VkShaderObj(m_device, source, VK_SHADER_STAGE_COMPUTE_BIT, this));
+    pipe.dsl_bindings_ = {{0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+    pipe.InitState();
+    pipe.CreateComputePipeline();
+
+    m_errorMonitor->VerifyFound();
+}
+
+TEST_F(VkLayerTest, CreateComputePipelineIncompatibleImageFormat) {
+    TEST_DESCRIPTION("Generate an error if the SPIR-V image format is not compatible with the image view’s format.");
+
+    m_errorMonitor->SetDesiredFailureMsg(
+        VK_DEBUG_REPORT_ERROR_BIT_EXT,
+        "Shader requires VkPhysicalDeviceFeatures::shaderStorageImageReadWithoutFormat but is not enabled on the device");
+
+    VkPhysicalDeviceFeatures features{};
+    features.shaderStorageImageReadWithoutFormat = VK_FALSE;
+    ASSERT_NO_FATAL_FAILURE(Init(&features));
+
+    // Create a descriptor pool.
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    {
+        VkDescriptorPoolSize pool_sizes[1]{{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
+        VkDescriptorPoolCreateInfo const info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0, 1, 1, pool_sizes};
+        auto const result = vk::CreateDescriptorPool(device(), &info, nullptr, &pool);
+        ASSERT_VK_SUCCESS(result);
+    }
+
+    // Create a descriptor set layout.
+    VkDescriptorSetLayout layouts[1]{VK_NULL_HANDLE};
+    {
+        VkDescriptorSetLayoutBinding const bindings[1]{
+            {0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+        VkDescriptorSetLayoutCreateInfo const info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, nullptr, 0, 1, bindings};
+        auto const result = vk::CreateDescriptorSetLayout(device(), &info, nullptr, &layouts[0]);
+        ASSERT_VK_SUCCESS(result);
+    }
+
+    // Allocate a descriptor set.
+    VkDescriptorSet descriptor_sets[1]{VK_NULL_HANDLE};
+    {
+        VkDescriptorSetAllocateInfo const info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, pool, 1, layouts};
+        auto const result = vk::AllocateDescriptorSets(device(), &info, descriptor_sets);
+        ASSERT_VK_SUCCESS(result);
+    }
+
+    // Create an image.
+    VkImage image{VK_NULL_HANDLE};
+    {
+        VkImageCreateInfo const info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                                     nullptr,
+                                     0,
+                                     VK_IMAGE_TYPE_2D,
+                                     VK_FORMAT_R8G8B8A8_UNORM,
+                                     {1, 1, 1},
+                                     1,
+                                     1,
+                                     VK_SAMPLE_COUNT_1_BIT,
+                                     VK_IMAGE_TILING_OPTIMAL,
+                                     VK_IMAGE_USAGE_STORAGE_BIT,
+                                     VK_SHARING_MODE_EXCLUSIVE,
+                                     0,
+                                     nullptr,
+                                     VK_IMAGE_LAYOUT_UNDEFINED};
+
+        // Check format requirements.
+        bool supported = ImageFormatAndFeaturesSupported(instance(), gpu(), info, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT);
+        if (!supported) {
+            printf("%s Format feature is unsupported. Skipping test.\n", kSkipPrefix);
+            return;
+        }
+
+        auto const result = vk::CreateImage(device(), &info, nullptr, &image);
+        ASSERT_VK_SUCCESS(result);
+    }
+
+    // TODO: Bind image memory.
+    {
+        VkMemoryRequirements requirements{VK_NULL_HANDLE};
+        vk::GetImageMemoryRequirements(device(), image, &requirements);
+        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VkMemoryAllocateInfo info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, 4, 0};
+        m_device->phy().set_memory_type(requirements.memoryTypeBits, &info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        // Allocate memory.
+        // vk::AllocateMemory(device(),);
+
+        // TODO: Bind memory to image.
+        // auto const result = vk::BindImageMemory(device(), image, memory, 0);
+        // ASSERT_VK_SUCCESS(result);
+    }
+
+    // Create an image view.
+    VkImageView image_view{VK_NULL_HANDLE};
+    {
+        VkImageViewCreateInfo const info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                         nullptr,
+                                         0,
+                                         image,
+                                         VK_IMAGE_VIEW_TYPE_2D,
+                                         VK_FORMAT_R8G8B8A8_UNORM,
+                                         {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
+                                          VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A},
+                                         {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
+        auto const result = vk::CreateImageView(device(), &info, nullptr, &image_view);
+        ASSERT_VK_SUCCESS(result);
+    }
+
+    // Update the descriptor set.
+    // {
+    //     VkDescriptorImageInfo descriptor_image_info[1]{{VK_NULL_HANDLE, image_view, VK_IMAGE_LAYOUT_UNDEFINED}};
+    //
+    //     VkWriteDescriptorSet descriptor_writes[1]{{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptor_sets[0], 0, 0, 1,
+    //                                                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor_image_info}};
+    //     vk::UpdateDescriptorSets(device(), 1, descriptor_writes, 0, nullptr);
+    // }
+    //
+    // TODO: Bind descriptor sets.
+
+    // Free image view.
+    vk::DestroyImageView(device(), image_view, nullptr);
+
+    // Free image.
+    vk::DestroyImage(device(), image, nullptr);
+
+    // Free descriptor sets.
+    {
+        auto const result = vk::FreeDescriptorSets(device(), pool, 1, descriptor_sets);
+        ASSERT_VK_SUCCESS(result);
+    }
+
+    // Destroy descriptor-set layout.
+    vk::DestroyDescriptorSetLayout(device(), layouts[0], nullptr);
+
+    // Destroy descriptor pool.
+    vk::DestroyDescriptorPool(device(), pool, nullptr);
+
+    const std::string source{R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
+               OpName %main "main"
+               OpName %_main_ "@main("
+               OpName %tex "tex"
+               OpDecorate %tex DescriptorSet 0
+               OpDecorate %tex Binding 0
+               OpDecorate %tex NonReadable
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+        %int = OpTypeInt 32 1
+          %9 = OpTypeImage %int 2D 0 0 0 2 Rgba32f
+%_ptr_UniformConstant_9 = OpTypePointer UniformConstant %9
+        %tex = OpVariable %_ptr_UniformConstant_9 UniformConstant
+      %v2int = OpTypeVector %int 2
+      %int_0 = OpConstant %int 0
+         %15 = OpConstantComposite %v2int %int_0 %int_0
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+         %17 = OpFunctionCall %void %_main_
+               OpReturn
+               OpFunctionEnd
+     %_main_ = OpFunction %void None %3
+          %7 = OpLabel
+         %12 = OpLoad %9 %tex
+         %16 = OpImageRead %int %12 %15
+               OpReturn
+               OpFunctionEnd)"};
+
+    CreateComputePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.cs_.reset(new VkShaderObj(m_device, source, VK_SHADER_STAGE_COMPUTE_BIT, this));
+    pipe.dsl_bindings_ = {{0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+    pipe.InitState();
+    // pipe.pipeline_layout_ = VkPipelineLayoutObj(m_device, {});
+    pipe.CreateComputePipeline();
+
+    m_errorMonitor->VerifyFound();
+}
