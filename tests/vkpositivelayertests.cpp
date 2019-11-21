@@ -9843,3 +9843,174 @@ TEST_F(VkPositiveLayerTest, ImagelessLayoutTracking) {
     vk::DestroySemaphore(m_device->device(), image_acquired, nullptr);
     vk::DestroyFramebuffer(m_device->device(), framebuffer, nullptr);
 }
+
+TEST_F(VkPositiveLayerTest, DebugNVIDIA) {
+    TEST_DESCRIPTION("Debug NVIDIA");
+
+    // Create an instance.
+    auto const instance = []()
+    {
+        VkInstance instance{VK_NULL_HANDLE};
+        {
+            char const*const layers[1] =
+            {
+                "VK_LAYER_KHRONOS_validation"
+            };
+            VkInstanceCreateInfo const info
+            {
+                VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                layers,
+                0,
+                nullptr
+            };
+            auto const result = vk::CreateInstance(&info, nullptr, &instance);
+            assert(result == VK_SUCCESS);
+        }
+
+        return instance;
+    }();
+
+    // Enumerate physical devices.
+    auto const physical_devices = [&instance]()
+    {
+        uint32_t expected_size{0};
+        {
+            auto const result = vk::EnumeratePhysicalDevices(instance, &expected_size, nullptr);
+            assert(result == VK_SUCCESS);
+            assert(expected_size > 0);
+        }
+
+        uint32_t size{expected_size};
+        VkPhysicalDevice array[size];
+        {
+            auto const result = vk::EnumeratePhysicalDevices(instance, &size, array);
+            assert(result == VK_SUCCESS);
+            assert(size == expected_size);
+        }
+
+        return std::vector<VkPhysicalDevice>(array, array+size);
+    }();
+
+    for(auto const& physical_device:physical_devices)
+    {
+        // Query queue family properties.
+        auto const queue_family_properties = [&physical_device]()
+        {
+            uint32_t expected_size{0};
+            vk::GetPhysicalDeviceQueueFamilyProperties(physical_device, &expected_size, nullptr);
+            assert(expected_size > 0);
+
+            uint32_t size{expected_size};
+            VkQueueFamilyProperties array[size];
+            vk::GetPhysicalDeviceQueueFamilyProperties(physical_device, &size, array);
+            assert(size == expected_size);
+
+            return std::vector<VkQueueFamilyProperties>(array, array+size);
+        }();
+
+        // Print queue flags and count.
+        std::cout << "                                        GRAPHICS | COMPUTE | TRANSFER | SPARSE_BINDING | PROTECTED | COUNT" << '\n';
+        for(uint32_t i = 0; i< queue_family_properties.size(); ++i)
+        {
+            auto const& queue_family_property = queue_family_properties[i];
+            auto const& queue_flags = queue_family_property.queueFlags;
+            assert(queue_flags != 0);
+            std::cout << "queue_family_properties[" << i << "].queueFlags =";
+            if(queue_flags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                std::cout << "    YES   |";
+            }
+            else
+            {
+                std::cout << "     NO   |";
+            }
+            if(queue_flags & VK_QUEUE_COMPUTE_BIT)
+            {
+                std::cout << "   YES   |";
+            }
+            else
+            {
+                std::cout << "    NO   |";
+            }
+            if(queue_flags & VK_QUEUE_TRANSFER_BIT)
+            {
+                std::cout << "    YES   |";
+            }
+            else
+            {
+                std::cout << "     NO   |";
+            }
+            if(queue_flags & VK_QUEUE_SPARSE_BINDING_BIT)
+            {
+                std::cout << "       YES      |";
+            }
+            else
+            {
+                std::cout << "        NO      |";
+            }
+            if(queue_flags & VK_QUEUE_PROTECTED_BIT)
+            {
+                std::cout << "    YES    | ";
+            }
+            else
+            {
+                std::cout << "     NO    | ";
+            }
+            assert(queue_family_properties[i].queueCount > 0);
+            std::cout << "  " << queue_family_properties[i].queueCount << '\n';
+        }
+
+        // Create a device.
+        auto const device = [&physical_device, &queue_family_properties]()
+        {
+            uint32_t const queue_info_size{static_cast<uint32_t>(queue_family_properties.size())};
+            VkDeviceQueueCreateInfo queue_info[queue_info_size];
+            for(uint32_t i = 0; i < queue_info_size; ++i)
+            {
+                queue_info[i] =
+                {
+                    VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                    nullptr,
+                    0,
+                    i,
+                    queue_family_properties[i].queueCount,
+                    new float[queue_family_properties[i].queueCount]{} // Zero initialized via value intialization via list initialization.
+                };
+            }
+
+            VkDeviceCreateInfo const info
+            {
+                VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+                nullptr,
+                0,
+                queue_info_size,
+                queue_info,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                nullptr
+            };
+
+            VkDevice device{VK_NULL_HANDLE};
+            auto result = vk::CreateDevice(physical_device, &info, nullptr, &device);
+            assert(result != VK_ERROR_INITIALIZATION_FAILED);
+            assert(result == VK_SUCCESS);
+
+            for(uint32_t i = 0; i< queue_info_size; ++i)
+            {
+                delete [] queue_info[i].pQueuePriorities;
+            }
+
+            return device;
+        }();
+
+        vk::DestroyDevice(device, nullptr);
+    }
+
+    vk::DestroyInstance(instance, nullptr);
+}
