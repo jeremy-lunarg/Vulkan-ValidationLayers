@@ -4253,53 +4253,80 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationControlInputOutputCompone
             return;
         }
 
+        // Vertex stage
+        std::string vsSourceStr = R"(
+            #version 450
+            )";
+
+        // Output components
+        {
+            const uint32_t maxVertOutComp = m_device->props.limits.maxVertexOutputComponents + overflow;
+            const uint32_t numOutVec4 = maxVertOutComp / 4;
+            uint32_t outLocation = 0;
+            for (uint32_t i = 0; i < numOutVec4; i++) {
+                vsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out;\n";
+                outLocation += 1;
+            }
+        }
+
+        vsSourceStr += R"(
+            void main(){
+            }
+            )";
+
         // Tessellation control stage
         std::string tcsSourceStr =
             "#version 450\n"
             "\n";
+
         // Input components
-        const uint32_t maxTescInComp = m_device->props.limits.maxTessellationControlPerVertexInputComponents + overflow;
-        const uint32_t numInVec4 = maxTescInComp / 4;
-        uint32_t inLocation = 0;
-        if (overflow == 2) {
-            tcsSourceStr += "layout(location=" + std::to_string(numInVec4 + 1) + ") in vec4 vnIn[];\n";
-        } else {
-            for (uint32_t i = 0; i < numInVec4; i++) {
-                tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
-                inLocation += 1;
-            }
-            const uint32_t inRemainder = maxTescInComp % 4;
-            if (inRemainder != 0) {
-                if (inRemainder == 1) {
-                    tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
-                } else {
-                    tcsSourceStr +=
-                        "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+        {
+            const uint32_t maxTescInComp = m_device->props.limits.maxTessellationControlPerVertexInputComponents + overflow;
+            const uint32_t numInVec4 = maxTescInComp / 4;
+            uint32_t inLocation = 0;
+            if (overflow == 2) {
+                tcsSourceStr += "layout(location=" + std::to_string(numInVec4 + 1) + ") in vec4 vnIn[];\n";
+            } else {
+                for (uint32_t i = 0; i < numInVec4; i++) {
+                    tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
+                    inLocation += 1;
                 }
-                inLocation += 1;
+                const uint32_t inRemainder = maxTescInComp % 4;
+                if (inRemainder != 0) {
+                    if (inRemainder == 1) {
+                        tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
+                    } else {
+                        tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) +
+                                        " vnIn[];\n";
+                    }
+                    inLocation += 1;
+                }
             }
         }
 
         // Output components
-        const uint32_t maxTescOutComp = m_device->props.limits.maxTessellationControlPerVertexOutputComponents + overflow;
-        const uint32_t numOutVec4 = maxTescOutComp / 4;
-        uint32_t outLocation = 0;
-        if (overflow == 2) {
-            tcsSourceStr += "layout(location=" + std::to_string(numOutVec4 + 1) + ") out vec4 vnOut[3];\n";
-        } else {
-            for (uint32_t i = 0; i < numOutVec4; i++) {
-                tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out[3];\n";
-                outLocation += 1;
-            }
-            const uint32_t outRemainder = maxTescOutComp % 4;
-            if (outRemainder != 0) {
-                if (outRemainder == 1) {
-                    tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut[3];\n";
-                } else {
-                    tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) +
-                                    " vnOut[3];\n";
+        {
+            const uint32_t maxTescOutComp = m_device->props.limits.maxTessellationControlPerVertexOutputComponents + overflow;
+            const uint32_t numOutVec4 = maxTescOutComp / 4;
+            uint32_t outLocation = 0;
+            if (overflow == 2) {
+                tcsSourceStr += "layout(location=" + std::to_string(numOutVec4 + 1) + ") out vec4 vnOut[3];\n";
+            } else {
+                for (uint32_t i = 0; i < numOutVec4; i++) {
+                    tcsSourceStr +=
+                        "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out[3];\n";
+                    outLocation += 1;
                 }
-                outLocation += 1;
+                const uint32_t outRemainder = maxTescOutComp % 4;
+                if (outRemainder != 0) {
+                    if (outRemainder == 1) {
+                        tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut[3];\n";
+                    } else {
+                        tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec" +
+                                        std::to_string(outRemainder) + " vnOut[3];\n";
+                    }
+                    outLocation += 1;
+                }
             }
         }
 
@@ -4310,6 +4337,7 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationControlInputOutputCompone
             "void main(){\n"
             "}\n";
 
+        VkShaderObj vs(m_device, vsSourceStr.c_str(), VK_SHADER_STAGE_VERTEX_BIT, this);
         VkShaderObj tcs(m_device, tcsSourceStr.c_str(), VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, this);
         VkShaderObj tes(m_device, bindStateTeshaderText, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, this);
 
@@ -4326,10 +4354,8 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationControlInputOutputCompone
         tessInfo.flags = 0;
         tessInfo.patchControlPoints = 3;
 
-        m_errorMonitor->SetUnexpectedError("UNASSIGNED-CoreValidation-Shader-InputNotProduced");
-
         const auto set_info = [&](CreatePipelineHelper &helper) {
-            helper.shader_stages_ = {helper.vs_->GetStageCreateInfo(), tcs.GetStageCreateInfo(), tes.GetStageCreateInfo(),
+            helper.shader_stages_ = {vs.GetStageCreateInfo(), tcs.GetStageCreateInfo(), tes.GetStageCreateInfo(),
                                      helper.fs_->GetStageCreateInfo()};
             helper.gp_ci_.pTessellationState = &tessInfo;
             helper.gp_ci_.pInputAssemblyState = &inputAssemblyInfo;
