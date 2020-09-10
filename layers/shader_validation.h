@@ -120,6 +120,35 @@ struct decoration_set {
     void add(uint32_t decoration, uint32_t value);
 };
 
+struct function_set {
+    unsigned id;
+    unsigned offset;
+    unsigned length;
+    std::unordered_multimap<uint32_t, uint32_t> op_lists;  // key: spv::Op,  value: offset
+
+    function_set() : id(0), offset(0), length(0) {}
+};
+
+struct shader_struct_member {
+    uint32_t offset;
+    uint32_t size;                                 // A scalar size or a struct size. Not consider array
+    std::vector<uint32_t> array_length_hierarchy;  // e.g.: multi-dimensional array, mat, vec. mat is combined with 2 vec.
+    std::vector<uint8_t> used_bytes;  // 0: not used. 1: used. The totally array * size. Only work for scalar, not struct.
+    std::vector<std::pair<bool, shader_struct_member>> struct_members;  // If the data is not a struct, it's empty.
+
+    shader_struct_member() : offset(0), size(0) {}
+
+    bool IsUsed() const {
+        if (size == 0) return false;
+        for (const auto &member : struct_members) {
+            if (member.first) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 struct SHADER_MODULE_STATE : public BASE_NODE {
     // The spirv image itself
     std::vector<uint32_t> words;
@@ -129,7 +158,10 @@ struct SHADER_MODULE_STATE : public BASE_NODE {
     std::unordered_map<unsigned, decoration_set> decorations;
     struct EntryPoint {
         uint32_t offset;
-        VkShaderStageFlags stage;
+        VkShaderStageFlagBits stage;
+        std::unordered_multimap<unsigned, unsigned> decorate_list;  // key: spv::Op,  value: offset
+        std::vector<function_set> function_set_list;
+        shader_struct_member push_constant_used_in_shader;
     };
     std::unordered_multimap<std::string, EntryPoint> entry_points;
     bool has_valid_spirv;
@@ -317,6 +349,8 @@ class ValidationCache {
     }
 };
 
+const SHADER_MODULE_STATE::EntryPoint *FindEntrypointStruct(SHADER_MODULE_STATE const *src, char const *name,
+                                                            VkShaderStageFlagBits stageBits);
 spirv_inst_iter FindEntrypoint(SHADER_MODULE_STATE const *src, char const *name, VkShaderStageFlagBits stageBits);
 
 // For some analyses, we need to know about all ids referenced by the static call tree of a particular entrypoint. This is
@@ -340,6 +374,8 @@ std::vector<std::pair<descriptor_slot_t, interface_var>> CollectInterfaceByDescr
     SHADER_MODULE_STATE const *src, std::unordered_set<uint32_t> const &accessible_ids, bool *has_writable_descriptor,
     bool *has_atomic_descriptor);
 
+void SetPushConstantUsedInShader(SHADER_MODULE_STATE &src);
+
 std::unordered_set<uint32_t> CollectWritableOutputLocationinFS(const SHADER_MODULE_STATE &module,
                                                                const VkPipelineShaderStageCreateInfo &stage_info);
 
@@ -349,5 +385,8 @@ spv_target_env PickSpirvEnv(uint32_t api_version, bool spirv_1_4);
 
 void AdjustValidatorOptions(const DeviceExtensions device_extensions, const DeviceFeatures enabled_features,
                             spvtools::ValidatorOptions &options);
+
+void RunUsedStrcut(const SHADER_MODULE_STATE &src, uint32_t access_chain_word_index, spirv_inst_iter &access_chain_it,
+                   shader_struct_member *data);
 
 #endif  // VULKAN_SHADER_VALIDATION_H
