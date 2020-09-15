@@ -3171,6 +3171,8 @@ bool CoreChecks::ValidatePipelineShaderStage(VkPipelineShaderStageCreateInfo con
         optimizer.SetMessageConsumer(consumer);
         optimizer.RegisterPass(spvtools::CreateSetSpecConstantDefaultValuePass(id_value_map));
         optimizer.RegisterPass(spvtools::CreateFreezeSpecConstantValuePass());
+        optimizer.RegisterPass(spvtools::CreateSimplificationPass());
+        optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
         std::vector<uint32_t> specialized_spirv;
         auto const optimized =
             optimizer.Run(module->words.data(), module->words.size(), &specialized_spirv, spvtools::ValidatorOptions(), true);
