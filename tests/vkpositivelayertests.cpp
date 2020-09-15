@@ -9219,6 +9219,132 @@ TEST_F(VkPositiveLayerTest, CreatePipelineSpecializeInt64) {
     m_errorMonitor->VerifyNotFound();
 }
 
+TEST_F(VkPositiveLayerTest, SpecializePredicateOnBooleanPushConstant) {
+    TEST_DESCRIPTION("Test specialization constants that predicate on boolean push constants.");
+
+    m_errorMonitor->ExpectSuccess();
+
+    ASSERT_NO_FATAL_FAILURE(Init());
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    char const *const fs_src = R"(
+        #version 450
+
+        layout (constant_id = 0) const bool b = true;
+
+        layout (push_constant) uniform push_constants
+        {
+            float f;
+        } pcs;
+
+        layout (location = 0) out vec4 color;
+
+        void main()
+        {
+            color = vec4(1.0f);
+
+            if(b)
+            {
+                color.r = pcs.f;
+            }
+        }
+    )";
+
+    VkShaderObj const fs(m_device, fs_src, VK_SHADER_STAGE_FRAGMENT_BIT, this);
+
+    const VkSpecializationMapEntry entry = {
+        0,  // id
+        0,  // offset
+        4   // size
+    };
+    uint32_t const data = 0x00000000;
+    const VkSpecializationInfo specialization_info = {
+        1,
+        &entry,
+        4,
+        &data,
+    };
+
+    VkPushConstantRange push_constant_ranges[1]{{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}};
+
+    VkPipelineLayoutCreateInfo const pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, nullptr, 0, 0, nullptr, 1, push_constant_ranges};
+
+    CreatePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.shader_stages_ = {pipe.vs_->GetStageCreateInfo(), fs.GetStageCreateInfo()};
+    pipe.shader_stages_[1].pSpecializationInfo = &specialization_info;
+    pipe.pipeline_layout_ci_ = pipeline_layout_info;
+    pipe.InitState();
+
+    pipe.CreateGraphicsPipeline();
+
+    m_errorMonitor->VerifyNotFound();
+}
+
+TEST_F(VkPositiveLayerTest, SpecializePredicateOnIntegerPushConstant) {
+    TEST_DESCRIPTION("Test specialization constants that predicate on integer push constants.");
+
+    m_errorMonitor->ExpectSuccess();
+
+    ASSERT_NO_FATAL_FAILURE(Init());
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    char const *const fs_src = R"(
+        #version 450
+
+        layout (constant_id = 0) const int i = 1;
+
+        layout (push_constant) uniform push_constants
+        {
+            float f;
+        } pcs;
+
+        layout (location = 0) out vec4 color;
+
+        void main()
+        {
+            color = vec4(1.0f);
+
+            if(i == 1)
+            {
+                color.r = pcs.f;
+            }
+        }
+    )";
+
+    VkShaderObj const fs(m_device, fs_src, VK_SHADER_STAGE_FRAGMENT_BIT, this);
+
+    const VkSpecializationMapEntry entry = {
+        0,  // id
+        0,  // offset
+        4   // size
+    };
+    uint32_t const data = 0x00000000;
+    const VkSpecializationInfo specialization_info = {
+        1,
+        &entry,
+        4,
+        &data,
+    };
+
+    VkPushConstantRange push_constant_ranges[1]{{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4}};
+
+    VkPipelineLayoutCreateInfo const pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, nullptr, 0, 0, nullptr, 1, push_constant_ranges};
+
+    CreatePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.shader_stages_ = {pipe.vs_->GetStageCreateInfo(), fs.GetStageCreateInfo()};
+    pipe.shader_stages_[1].pSpecializationInfo = &specialization_info;
+    pipe.pipeline_layout_ci_ = pipeline_layout_info;
+    pipe.InitState();
+
+    pipe.CreateGraphicsPipeline();
+
+    m_errorMonitor->VerifyNotFound();
+}
+
 TEST_F(VkPositiveLayerTest, SubresourceLayout) {
     ASSERT_NO_FATAL_FAILURE(Init());
     m_errorMonitor->ExpectSuccess(kErrorBit | kWarningBit);
